@@ -10,51 +10,55 @@ start_time = time.time()
 # from selenium.common.exceptions import TimeoutException
 import random
 import pandas as pd
-import sys
-import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer,encoding='utf8')
+# import sys
+# import io
+# sys.stdout = io.TextIOWrapper(sys.stdout.buffer,encoding='utf8')
 
 
 # 設定參數=================================================================
 nation="United States"
-exclude_word=["internation edition",]
+exclude_word=["international edition","international"]
 include_word=["international ship","ship internation"]
 income_diff=10
-timeout = 20
-order = 2000
+timeout = 60
+order = 200
 # ========================================================================
 
 # 測試參數=================================================================
 # isbn_lib = []
-# isbn_lib = ["9780321976444", "9781541500990" ,"0133254429","9781118566541"]
-# isbn_lib = ["9781118486894","9781259644030"]
+# isbn_lib = ["9781118486894","9780321976444", "9781541500990" ,"0133254429","9781118566541","9781259644030","9781133628477"]
+isbn_lib = ["9780321976444"]
 # ========================================================================
 
 
 
-#加入資料庫
-df = pd.read_csv(r'Book-Data-Sheet1.csv')
-isbn_lib = df['ISBN/ID'].tolist()
-temp_lib = isbn_lib[:]
-
-for i in isbn_lib:
-    if (len(i) != 10) and (len(i) != 13) or i.isdigit() == False :
-        temp_lib.remove(i)
-
-isbn_lib = temp_lib[:]
-print("--- Data Filter Finished in %s seconds ---" % (time.time() - start_time))
+# 加入資料庫(利用 Pandas)
+# df = pd.read_csv(r'Book-Data-Sheet1.csv')
+# isbn_lib = df['ISBN/ID'].tolist()
+# temp_lib = isbn_lib[:]
+#
+# for i in isbn_lib:
+#     if (len(i) != 10) and (len(i) != 13) or i.isdigit() == False :
+#         temp_lib.remove(i)
+#
+# isbn_lib = temp_lib[:]
+# print("--- Data Filter Finished in %s seconds ---" % (time.time() - start_time))
 
 #亂序排列
 # random.shuffle(isbn_lib)
+# isbn_lib.reverse()
 
 # browser = webdriver.Firefox()
 # browser = webdriver.Chrome()
 
 delay = 15
 count = 0
-
+temp_time = time.time()
 f_text = open(r"bookBenefit.txt", "w")
-# isbn_lib.reverse()
+
+# proxies = {'https': 'https://142.93.62.60:3128', 'http': 'http://142.93.62.60:3128'}
+proxies = {'http': 'http://45.63.54.173.60:8082'}
+headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36','Accept-Encoding': 'identity'}
 
 # 遞迴ISBN資料庫
 for book in isbn_lib:
@@ -62,10 +66,11 @@ for book in isbn_lib:
     if count >= order:
         break
     count += 1
-    print(count)
+    print(str(count) + ":" + str( time.time() - temp_time ) )
+    temp_time = time.time()
 
     # 暫停器
-    time.sleep(random.random()*0.1+0.05)
+    # time.sleep(random.random()*0.1)
 
     # 每本書的參數
     income = 0.0
@@ -74,10 +79,9 @@ for book in isbn_lib:
 
     # browser.implicitly_wait(5000)
 
-    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36','Accept-Encoding': 'identity'}
     try:
         req = requests.get("https://www.bookfinder.com/search/?keywords=" + book +
-                "&currency=USD&destination=us&mode=basic&lang=en&st=sh&ac=qr&submit=", headers = headers, timeout = timeout)
+                "&currency=USD&destination=us&mode=basic&lang=en&st=sh&ac=qr&submit=", headers = headers, timeout = timeout, proxies=proxies)
     except (requests.exceptions.Timeout,):
         print("requests timeout")
         continue
@@ -125,9 +129,8 @@ for book in isbn_lib:
     if len(result_table)>1:
         print("================")
         # 重設暫存參數
-
         temp_used_price = 0
-        next_book = False
+        good_data_row = []
 
         # 讀取每筆資料
         used_data_row = result_table[1].find_all("tr")
@@ -138,19 +141,19 @@ for book in isbn_lib:
 
             # 尋找第一筆二手書的價格
             try :
-                temp_used_price =float(row['data-price'])
+                temp_used_price = float(row['data-price'])
 
             # 排除標題(沒有 "data-price" 屬性)
             except (NameError,KeyError):
                 continue
 
             else:
-                # 二手書的價格低於收購價時
+                # 二手書的價格高於收購價時
                 if temp_used_price > buy_price:
                     next_book = True
                     break
 
-                # 二手書的價格高於收購價時
+                # 二手書的價格低於收購價時
                 else:
 
                     # 建立來自"美國網站"的過濾器selector
@@ -164,22 +167,29 @@ for book in isbn_lib:
 
                     # 排除敘述中有提到"international edition"的版本
                     else:
-                        for desc in row.select(".item-note")[0].contents:
-                            for e in exclude_word:
-                                if (e in desc):
-                                    break
+                        desc = str(row.select(".item-note")[0]).lower()
+                        is_in = False
+                        for e in exclude_word:
+                            if (e in desc):
+                                is_in = True
+                                break
+                                # 沒有提到"international edition"
+                            else:
+                                continue
 
-                                    # 沒有提到"international edition"
-                                else:
-                                    # 儲存價格和連結
-                                    lowest_used_price = temp_used_price
-                                    link_src = row.select(".results-price a")[0]['href']
+                        if is_in == True:
+                            continue
+                        else:
+                            # 儲存價格和連結
+                            lowest_used_price = temp_used_price
+                            link_src = row.select(".results-price a")[0]['href']
+                            good_data_row.append([lowest_used_price,src_nation,link_src])
 
-        # 二手書的價格低於收購價時，換一本
-        if next_book == True:
+        # 二手書的價格低於收購價時 且 good_data_row 沒有內容時，換一本
+        if next_book == True and len(good_data_row)==0 :
             continue
 
-    # 沒有新書的情況(只有二手書時，len(result_talbe)==1)
+    # 沒有新書的情況(只有新書時，len(result_table)==1)
     else:
         continue
 
@@ -189,12 +199,14 @@ for book in isbn_lib:
     # isbn = isbn_str[0:isbn_str.find("/")-1]
 
     # 存檔
-    income = buy_price - lowest_used_price
+    income = buy_price - good_data_row[0][0]
     if income > income_diff:
         print("start-----------------------------")
         # print("Isbn:", isbn)
         print("Isbn:", book ," 收益",income)
-        print("賣出:", buy_price,"買入",lowest_used_price)
+        print("賣出:", buy_price,"買入",good_data_row[0][0])
+        for line in good_data_row:
+            print(line[0],line[1])
         print("----------------------------------")
         # f_text = open(r"C:\Users\chen\Downloads\bookBenefit.txt", "w")
         f_text = open(r"bookBenefit.txt", "a")
@@ -203,7 +215,7 @@ for book in isbn_lib:
         # f_text.write('Isbn:'+isbn+'\n')
         f_text.write('Isbn:'+book+'\n')
         f_text.write('收益'+str(income)+'\n')
-        f_text.write("賣出:"+str(buy_price)+"買入"+str(lowest_used_price)+'\n')
+        f_text.write("賣出:"+str(buy_price)+"買入"+str(good_data_row[0][0])+'\n')
         f_text.close()
 
 # browser.quit()
